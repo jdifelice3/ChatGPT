@@ -6,13 +6,46 @@ function App() {
   const [chat, setChat] = useState([]);
 
   const sendMessage = async () => {
-    if (!message) return;
-    setChat([...chat, { sender: "user", text: message }]);
-    setMessage("");
+  if (!message) return;
 
-    const res = await axios.post("http://localhost:5000/api/chat", { message });
-    setChat((prev) => [...prev, { sender: "bot", text: res.data.reply }]);
-  };
+  const updatedChat = [...chat, { sender: "user", text: message }];
+  setChat(updatedChat);
+  setMessage("");
+
+  // Temporary bot message to update as we stream
+  let botMessage = { sender: "bot", text: "" };
+  setChat((prev) => [...prev, botMessage]);
+
+  const response = await fetch("http://localhost:5000/api/chat-stream", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ chat: updatedChat }),
+  });
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+
+    const chunk = decoder.decode(value, { stream: true });
+    const pieces = chunk.split("\n\n").filter(Boolean);
+
+    for (const piece of pieces) {
+      if (piece.includes("[END]")) return;
+      const data = piece.replace("data: ", "");
+      botMessage.text += data;
+
+      // Re-render with the updated bot message
+      setChat((prev) => {
+        const updated = [...prev];
+        updated[updated.length - 1] = { ...botMessage };
+        return updated;
+      });
+    }
+  }
+};
 
   return (
     <div style={{ padding: 20 }}>
